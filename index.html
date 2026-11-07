@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>萬年社區 志工服務簽到</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; font-family: "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif;
+      background: #F0F4F8; display: flex; justify-content: center; min-height: 96vh; align-items: center; }
+    .card { width: 100%; max-width: 420px; background: #fff; border-radius: 24px; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,.08); text-align: center; }
+    .org { font-size: 15px; color: #718096; font-weight: bold; margin-bottom: 6px; }
+    .pill { font-size: 19px; font-weight: bold; color: #2D3748; background: #EDF2F7; padding: 8px 18px; border-radius: 50px; display: inline-block; margin-bottom: 14px; }
+    .msg { font-size: 19px; font-weight: 800; color: #2D3748; margin: 12px 0; line-height: 1.5; white-space: pre-line; }
+    .sub { font-size: 15px; color: #4A5568; margin: 6px 0 14px; white-space: pre-line; }
+    .big { width: 100%; min-height: 150px; border: none; border-radius: 20px; font-size: 25px; font-weight: 900; color: #fff; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 10px; box-shadow: 0 8px 20px rgba(0,0,0,.15); }
+    .big:active, .svc:active { transform: scale(.96); }
+    .big small { font-size: 16px; font-weight: normal; margin-top: 8px; }
+    .out { background: #E53E3E; } .wait { background: #CBD5E0; color: #4A5568; } .retry { background: #4A5568; } .go { background: #06C755; }
+    .svc { width: 100%; background: #06C755; color: #fff; border: none; border-radius: 16px; padding: 18px; margin-bottom: 12px;
+      font-size: 22px; font-weight: 800; cursor: pointer; }
+    .svc.other { background: #F7FAFC; color: #2D3748; border: 2px solid #CBD5E0; font-size: 19px; padding: 14px; }
+    .link { background: none; border: none; color: #3182CE; font-size: 16px; font-weight: bold; margin-top: 6px; cursor: pointer; }
+    input { width: 100%; font-size: 22px; padding: 14px; border: 2px solid #CBD5E0; border-radius: 14px; margin-bottom: 12px; text-align: center; }
+    .warn { background: #FEFCBF; color: #744210; padding: 12px; border-radius: 12px; font-size: 15px; font-weight: bold; margin-top: 12px; line-height: 1.5; white-space: pre-line; }
+    .done { font-size: 30px; font-weight: 900; color: #06C755; padding: 26px 6px; line-height: 1.5; }
+    .done span { display: block; font-size: 21px; color: #2D3748; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="org">萬年社區發展協會</div>
+    <div id="view"><div class="msg">連線中，請稍候...</div></div>
+  </div>
+
+  <script>
+    const LIFF_ID = "2012456387-ByhaSD4i";
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbylo0li5hz1XjwIqKzb3qsKsMN9DJeh_6sXHSno4-vPihMXDxc-YuNgpWBnd-eeskxk/exec";   // Apps Script 網頁應用程式的 /exec 網址
+    const P = new URLSearchParams(location.search);
+    const ORG = "wannian";
+    const SITE = P.get("site") || "";     // 掃據點 QR Code 進來會帶地點代碼
+
+    let idToken = "", pos = null, last = null, showAll = false;
+    const view = document.getElementById("view");
+
+    function el(tag, attrs, ...kids) {
+      const e = document.createElement(tag);
+      Object.entries(attrs || {}).forEach(([k, v]) => k === "onclick" ? (e.onclick = v) : e.setAttribute(k, v));
+      kids.flat().forEach(k => e.append(k instanceof Node ? k : document.createTextNode(String(k))));
+      return e;
+    }
+    function render(...nodes) { view.replaceChildren(...nodes.flat()); }
+    function loading(text) { render(el("div", { class: "msg" }, text || "處理中，請稍候...")); }
+    function error(text, retry) {
+      render(el("div", { class: "msg" }, "⚠️ " + text),
+        el("button", { class: "big retry", onclick: retry || (() => start()) }, "🔄 再試一次"));
+    }
+
+    async function api(body) {
+      const res = await fetch(GAS_URL, { method: "POST", body: JSON.stringify(Object.assign({ org: ORG, idToken, site: SITE }, body)) });
+      const j = await res.json();
+      if (j.code === "token") { try { liff.logout(); } catch (e) {} liff.login({ redirectUri: location.href }); throw new Error(j.message); }
+      return j;
+    }
+
+    function locate() {
+      return new Promise(resolve => {
+        if (!navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+      });
+    }
+
+    async function init() {
+      try {
+        await liff.init({ liffId: LIFF_ID });
+        if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+        idToken = liff.getIDToken();
+        start();
+      } catch (e) { error("LINE 連線失敗，請關閉後重新開啟。"); }
+    }
+
+    async function start() {
+      loading("📍 正在確認您的位置...");
+      pos = await locate();
+      try {
+        last = await api(Object.assign({ action: "status" }, pos || {}));
+        show();
+      } catch (e) { error("連線失敗：" + e.message); }
+    }
+
+    function show() {
+      const d = last;
+      if (d.status === "error") return error(d.message);
+      if (d.status === "unbound") return showBind(d);
+      const name = el("div", { class: "pill" }, "志工：" + d.name);
+
+      if (d.status === "open") {
+        return render(name,
+          el("div", { class: "msg" }, `正在服務：${d.open.btn}\n（${d.open.inT.slice(0, 5)} 簽到）`),
+          el("button", { class: "big out", onclick: () => punch("checkout") }, "🚪 服務結束", el("small", {}, "點這裡【簽退】")));
+      }
+
+      if (!d.gps) return render(name, el("div", { class: "msg" }, "⚠️ 沒有取得手機定位"),
+        el("div", { class: "sub" }, "請允許 LINE 使用定位，\n或到窗邊、門口再試一次。"),
+        el("button", { class: "big wait", onclick: start }, "🔄 重新定位"));
+
+      if (!d.site || !d.site.ok) return render(name, el("div", { class: "msg" }, "⚠️ 還沒到據點範圍"),
+        el("button", { class: "big wait", onclick: start }, `距離${d.site ? d.site.name : "據點"}約 ${d.site ? d.site.dist : "?"} 公尺`, el("small", {}, "到了再點這裡重新定位")),
+        el("div", { class: "warn" }, "請先到據點集合，再簽到。"));
+
+      const mine = d.services.filter(s => s.mine), others = d.services.filter(s => !s.mine);
+      const list = (showAll || !mine.length ? d.services : mine);
+      render(name,
+        el("div", { class: "msg" }, `已到達${d.site.name}\n今天要做哪一項服務？`),
+        list.map(s => el("button", { class: "svc" + (s.mine ? "" : " other"), onclick: () => punch("checkin", s) }, s.label)),
+        (!showAll && mine.length && others.length) ? el("button", { class: "link", onclick: () => { showAll = true; show(); } }, "我今天做別的服務 ▾") : []);
+    }
+
+    function showBind(d) {
+      const nameIn = el("input", { placeholder: "您的姓名", autocomplete: "off" });
+      const telIn = el("input", { placeholder: "手機最後三碼", inputmode: "numeric", maxlength: "3" });
+      render(el("div", { class: "msg" }, "第一次使用，請先登記身分"),
+        el("div", { class: "sub" }, "只要做一次，以後打開就會直接顯示您的名字。"),
+        nameIn, telIn,
+        el("button", { class: "big go", onclick: async () => {
+          if (!nameIn.value.trim() || telIn.value.replace(/\D/g, "").length !== 3) { alertBox("請輸入姓名與手機最後三碼"); return; }
+          loading("登記中...");
+          try {
+            const r = await api({ action: "bind", name: nameIn.value, phone3: telIn.value });
+            if (r.status !== "success") return error(r.message, () => showBind(d));
+            start();
+          } catch (e) { error("連線失敗：" + e.message, () => showBind(d)); }
+        } }, "✅ 登記"));
+    }
+    function alertBox(t) { const w = el("div", { class: "warn" }, t); view.append(w); setTimeout(() => w.remove(), 3000); }
+
+    async function punch(action, svc) {
+      if (navigator.vibrate) navigator.vibrate(50);
+      loading(action === "checkin" ? "簽到中，請稍候..." : "簽退中，請稍候...");
+      try {
+        if (action === "checkin") pos = (await locate()) || pos;
+        const r = await api(Object.assign({ action, service: svc ? svc.key : "" }, pos || {}));
+        if (r.status !== "success") return error(r.message, start);
+        let detail;
+        if (r.type === "in") detail = `【${r.btn}】${r.time} 簽到\n離開時請記得簽退`;
+        else if (r.already) detail = "剛才已經簽退成功了，不用再按";
+        else detail = `【${r.btn}】${r.time} 簽退\n本次服務 ${Math.floor(r.minutes / 60)} 小時 ${r.minutes % 60} 分`;
+        render(el("div", { class: "done" }, `✅ ${r.type === "in" ? "簽到" : "簽退"}成功`, el("span", {}, detail)),
+          el("div", { class: "sub" }, "謝謝您的服務！視窗即將關閉..."));
+        setTimeout(() => { try { liff.closeWindow(); } catch (e) {} }, 3500);
+      } catch (e) { error("連線失敗，這次沒有記錄成功：" + e.message, start); }
+    }
+
+    init();
+  </script>
+</body>
+</html>
