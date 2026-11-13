@@ -2,11 +2,12 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>萬年社區 志工服務簽到</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     * { box-sizing: border-box; }
+    button { touch-action: manipulation; } /* 可以兩指放大，但連點按鈕不會誤放大 */
     body { margin: 0; padding: 16px; font-family: "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif;
       background: #F0F4F8; display: flex; justify-content: center; min-height: 96vh; align-items: center; }
     .card { width: 100%; max-width: 420px; background: #fff; border-radius: 24px; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,.08); text-align: center; }
